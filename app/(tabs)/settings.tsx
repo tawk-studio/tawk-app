@@ -1,20 +1,10 @@
 import { useRouter } from 'expo-router';
-import {
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-  useColorScheme,
-} from 'react-native';
 import { useAuth } from '@/src/auth/auth-context';
-import { useMemo } from 'react';
-import { getTheme, Theme } from '@/src/theme';
+import { Screen } from '@/src/components/Screen';
+import { ThemedText } from '@/src/components/ThemedText';
+import { PrimaryButton } from '@/src/components/PrimaryButton';
 
 export default function SettingsScreen() {
-  const colorScheme = useColorScheme();
-  const t = getTheme(colorScheme);
-  const styles = useMemo(() => createStyles(t), [t]);
-
   const router = useRouter();
   const { signOut } = useAuth();
 
@@ -24,41 +14,10 @@ export default function SettingsScreen() {
   };
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Settings</Text>
+    <Screen style={{ justifyContent: 'center', gap: 12 }}>
+      <ThemedText variant="title">Settings</ThemedText>
 
-      <Pressable style={styles.button} onPress={onSignOut}>
-        <Text style={styles.buttonText}>Sign out</Text>
-      </Pressable>
-    </View>
+      <PrimaryButton title="Sign out" onPress={onSignOut} />
+    </Screen>
   );
-}
-
-function createStyles(t: Theme) {
-  return StyleSheet.create({
-    container: {
-      flex: 1,
-      padding: t.spacing.m,
-      justifyContent: 'center',
-      gap: t.spacing.s,
-      backgroundColor: t.colors.background,
-    },
-    title: {
-      ...t.text.title,
-      color: t.colors.text,
-    },
-    button: {
-      paddingVertical: t.spacing.s,
-      paddingHorizontal: t.spacing.m,
-      borderRadius: t.radius.m,
-      borderWidth: 1,
-      borderColor: t.colors.border,
-      backgroundColor: t.colors.surface,
-    },
-    buttonText: {
-      fontSize: 16,
-      fontWeight: '600',
-      color: t.colors.primary,
-    },
-  });
 }

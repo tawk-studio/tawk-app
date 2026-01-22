@@ -6,13 +6,25 @@ type ColorScheme = 'light' | 'dark' | null | undefined;
 
 export const lightTheme = {
   colors: {
-    background: '#FFFFFF',
-    surface: '#F7F7F7',
-    text: '#111111',
-    mutedText: '#6B7280',
-    border: '#E5E7EB',
-    primary: '#2563EB',
-    danger: '#DC2626',
+    // Core surfaces
+    background: '#F8FAFC', // light background
+    surface: '#FFFFFF', // cards / popovers
+    text: '#0B0F19', // tawk navy
+    mutedText: '#64748B', // subdued text
+
+    // Brand / actions
+    primary: '#1FBFA0', // tawk mint (slightly darker for contrast)
+    accent: '#2DD4BF', // accent mint
+    danger: '#DC2626', // destructive
+
+    // UI chrome
+    border: '#E2E8F0',
+    input: '#F1F5F9',
+    ring: '#1FBFA0',
+
+    // App-specific
+    sidebarBackground: '#0B0F19',
+    sidebarSurface: '#111827',
   },
 
   spacing: {
@@ -65,13 +77,25 @@ export const lightTheme = {
 export const darkTheme: Theme = {
   ...lightTheme,
   colors: {
-    background: '#0B0F19',
-    surface: '#121A2A',
-    text: '#F3F4F6',
-    mutedText: '#9CA3AF',
-    border: '#24314D',
-    primary: '#60A5FA',
-    danger: '#F87171',
+    // Core surfaces
+    background: '#0B0F19', // --background (222 47% 8%)
+    surface: '#121A2A', // --card / --popover (222 40% 12%)
+    text: '#E6FAF3', // --foreground (160 60% 95%)
+    mutedText: '#7B8794', // --muted-foreground (220 15% 55%)
+
+    // Brand / actions
+    primary: '#5FE3C0', // --primary / --tawk-mint (162 70% 65%)
+    accent: '#4FC9AE', // --accent (162 50% 50%)
+    danger: '#E04B4B', // --destructive (0 62% 55%)
+
+    // UI chrome
+    border: '#24314D', // --border (222 30% 22%)
+    input: '#1E293B', // --input (222 30% 18%)
+    ring: '#5FE3C0', // --ring (162 70% 65%)
+
+    // App-specific
+    sidebarBackground: '#0B0F19', // --sidebar-background
+    sidebarSurface: '#1B2436', // --sidebar-accent
   },
   // Adjust iOS shadow to be slightly stronger in dark mode
   shadow: Platform.select({
