@@ -1,0 +1,53 @@
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Expo
+.expo/
+expo-env.d.ts
+
+# Expo web
+web-build/
+
+# React Native
+ios/Pods/
+android/.gradle/
+android/app/build/
+android/build/
+
+# Android
+*.keystore
+*.jks
+
+# iOS
+*.xcworkspace
+*.xcuserstate
+*.xcuserdatad
+DerivedData/
+ios/build/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# TypeScript
+*.tsbuildinfo
+
+# IDEs / Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Testing
+coverage/
+
+# Misc
+*.log
+
+app-example
