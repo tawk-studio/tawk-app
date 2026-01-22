@@ -6,7 +6,6 @@ const prettierPlugin = require('eslint-plugin-prettier');
 const CONFIG_FILES = ['eslint.config.js', 'babel.config.js', '*.config.js'];
 
 module.exports = [
-  // ✅ ESLint v9 ignores
   {
     ignores: [
       'node_modules/**',
@@ -16,16 +15,13 @@ module.exports = [
     ],
   },
 
-  // ✅ Base JS rules
   js.configs.recommended,
 
-  // ✅ TypeScript rules ONLY for TS/TSX (prevents TS rules hitting config JS files)
   ...tseslint.configs.recommended.map((c) => ({
     ...c,
     files: ['**/*.{ts,tsx}'],
   })),
 
-  // ✅ App rules (Prettier + import resolver) for source files
   {
     files: ['**/*.{ts,tsx,js,jsx}'],
     plugins: {
@@ -42,7 +38,6 @@ module.exports = [
     },
   },
 
-  // ✅ Node/CommonJS config files: allow require/module and disable TS rule
   {
     files: CONFIG_FILES,
     languageOptions: {
