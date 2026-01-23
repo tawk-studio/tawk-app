@@ -1,8 +1,9 @@
-import { Tabs } from 'expo-router';
+import { Slot, Stack, Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { useColorScheme } from 'react-native';
+import { useColorScheme, View } from 'react-native';
 import { useMemo } from 'react';
 import { getTheme } from '@/src/theme';
+import { BottomNav } from '@/src/components/BottomNav';
 
 export default function TabsLayout() {
   const t = getTheme(useColorScheme());
@@ -25,36 +26,40 @@ export default function TabsLayout() {
   );
 
   return (
-    <Tabs
-      screenOptions={({ route }) => ({
-        ...screenOptions,
-        tabBarIcon: ({ size, color, focused }) => {
-          const name =
-            route.name === 'feed'
-              ? focused
-                ? 'mic'
-                : 'mic-outline'
-              : route.name === 'discover'
-                ? focused
-                  ? 'search'
-                  : 'search-outline'
-                : focused
-                  ? 'settings'
-                  : 'settings-outline';
-
-          return <Ionicons name={name} size={size} color={color} />;
-        },
-      })}
-    >
-      <Tabs.Screen
-        name="feed"
-        options={{ title: 'Feed', headerShown: false }}
-      />
-      <Tabs.Screen
-        name="discover"
-        options={{ title: 'Discover', headerShown: false }}
-      />
-      <Tabs.Screen name="settings" options={{ title: 'Settings' }} />
-    </Tabs>
+    // <Tabs
+    //   screenOptions={({ route }) => ({
+    //     ...screenOptions,
+    //     tabBarIcon: ({ size, color, focused }) => {
+    //       const name =
+    //         route.name === 'feed'
+    //           ? focused
+    //             ? 'mic'
+    //             : 'mic-outline'
+    //           : route.name === 'discover'
+    //             ? focused
+    //               ? 'search'
+    //               : 'search-outline'
+    //             : focused
+    //               ? 'settings'
+    //               : 'settings-outline';
+    //
+    //       return <Ionicons name={name} size={size} color={color} />;
+    //     },
+    //   })}
+    // >
+    //   <Tabs.Screen
+    //     name="feed"
+    //     options={{ title: 'Feed', headerShown: false }}
+    //   />
+    //   <Tabs.Screen
+    //     name="discover"
+    //     options={{ title: 'Discover', headerShown: false }}
+    //   />
+    //   <Tabs.Screen name="settings" options={{ title: 'Settings' }} />
+    // </Tabs>
+    <View style={{ flex: 1 }}>
+      <Stack screenOptions={{ headerShown: false }} />
+      <BottomNav />
+    </View>
   );
 }
