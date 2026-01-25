@@ -4,7 +4,7 @@ import { ThemedText } from '@/src/components/ThemedText';
 export default function DiscoverScreen() {
   return (
     <Screen style={{ justifyContent: 'center', gap: 12 }}>
-      <ThemedText variant="title">Discover</ThemedText>
+      {/*<ThemedText variant="title">Discover</ThemedText>*/}
     </Screen>
   );
 }

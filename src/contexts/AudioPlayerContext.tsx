@@ -1,5 +1,11 @@
 import { Tawk } from '@/src/features/tawk/types/tawk';
-import { Audio, AVPlaybackStatus } from 'expo-av';
+import {
+  createAudioPlayer,
+  setAudioModeAsync,
+  type AudioPlayer,
+  type AudioStatus,
+} from 'expo-audio';
+import { createVideoPlayer, type VideoPlayer } from 'expo-video';
 import React, {
   createContext,
   PropsWithChildren,
@@ -167,14 +173,6 @@ function reducer(state: State, action: Action): State {
   }
 }
 
-function isLoaded(
-  status: AVPlaybackStatus,
-): status is AVPlaybackStatus & { isLoaded: true } {
-  // expo-av type guard
-  // @ts-ignore
-  return Boolean(status && (status as any).isLoaded);
-}
-
 export function AudioPlayerProvider({ children }: PropsWithChildren) {
   const [state, dispatch] = useReducer(reducer, initialState);
 
@@ -184,9 +182,23 @@ export function AudioPlayerProvider({ children }: PropsWithChildren) {
     stateRef.current = state;
   }, [state]);
 
-  // expo-av sounds
-  const mainSoundRef = useRef<Audio.Sound | null>(null);
-  const jingleSoundRef = useRef<Audio.Sound | null>(null);
+  // expo-audio players
+  const mainPlayerRef = useRef<AudioPlayer | null>(null);
+  const jinglePlayerRef = useRef<AudioPlayer | null>(null);
+
+  // Optional: if you later have tawks with video sources, you can wire this up.
+  const videoPlayerRef = useRef<VideoPlayer | null>(null);
+
+  // Track latest native status for logic that needs duration/currentTime.
+  const mainStatusRef = useRef<AudioStatus | null>(null);
+  const jingleStatusRef = useRef<AudioStatus | null>(null);
+
+  // Listener subscriptions so we can cleanly detach.
+  const mainStatusSubRef = useRef<{ remove: () => void } | null>(null);
+  const jingleStatusSubRef = useRef<{ remove: () => void } | null>(null);
+
+  // Prevent re-entrant finish handling.
+  const finishingRef = useRef(false);
 
   const lastJingledParentIdRef = useRef<string | null>(null);
   const pendingParentRef = useRef<{ tawk: Tawk; queue: Tawk[] } | null>(null);
@@ -201,46 +213,92 @@ export function AudioPlayerProvider({ children }: PropsWithChildren) {
 
   // Configure audio mode once (safe defaults for iOS/Android)
   useEffect(() => {
-    Audio.setAudioModeAsync({
-      allowsRecordingIOS: false,
-      playsInSilentModeIOS: true,
-      staysActiveInBackground: false,
-      shouldDuckAndroid: true,
-      playThroughEarpieceAndroid: false,
+    // expo-audio audio mode
+    setAudioModeAsync({
+      playsInSilentMode: true,
+      allowsRecording: false,
+      shouldPlayInBackground: false,
+      interruptionMode: 'duckOthers',
     }).catch(() => {});
   }, []);
 
-  const ensureSound = useCallback(
-    async (ref: React.MutableRefObject<Audio.Sound | null>) => {
-      if (ref.current) return ref.current;
-      const sound = new Audio.Sound();
-      ref.current = sound;
-      return sound;
+  const detachListener = useCallback(
+    (subRef: React.MutableRefObject<{ remove: () => void } | null>) => {
+      try {
+        subRef.current?.remove();
+      } catch {}
+      subRef.current = null;
     },
     [],
   );
 
-  const unloadSound = useCallback(
-    async (ref: React.MutableRefObject<Audio.Sound | null>) => {
-      const s = ref.current;
-      if (!s) return;
+  const releasePlayer = useCallback(
+    (
+      playerRef: React.MutableRefObject<AudioPlayer | null>,
+      subRef: React.MutableRefObject<{ remove: () => void } | null>,
+    ) => {
+      detachListener(subRef);
+      const p = playerRef.current;
+      if (!p) return;
       try {
-        await s.stopAsync();
+        // Pause + reset is a safe best-effort “stop” across platforms
+        p.pause();
       } catch {}
       try {
-        await s.unloadAsync();
+        p.seekTo(0);
       } catch {}
-      ref.current = null;
+      try {
+        // expo-audio requires manual release when using createAudioPlayer
+        p.release();
+      } catch {}
+      playerRef.current = null;
     },
-    [],
+    [detachListener],
   );
 
-  const stopSound = useCallback(
-    async (ref: React.MutableRefObject<Audio.Sound | null>) => {
-      const s = ref.current;
-      if (!s) return;
+  const createPlayer = useCallback(
+    (
+      playerRef: React.MutableRefObject<AudioPlayer | null>,
+      subRef: React.MutableRefObject<{ remove: () => void } | null>,
+      statusRef: React.MutableRefObject<AudioStatus | null>,
+      source: string | null,
+      onStatus?: (status: AudioStatus) => void,
+    ) => {
+      // Dispose any prior instance
+      releasePlayer(playerRef, subRef);
+      if (!source) return null;
+
+      const player = createAudioPlayer(source, {
+        // Keep UI responsive without being too chatty.
+        updateInterval: 250,
+      });
+      playerRef.current = player;
+
+      // Attach a status listener
       try {
-        await s.stopAsync();
+        const sub = player.addListener(
+          'playbackStatusUpdate',
+          (status: AudioStatus) => {
+            statusRef.current = status;
+            onStatus?.(status);
+          },
+        );
+        subRef.current = sub as any;
+      } catch {
+        // If listener setup fails, we still keep the player.
+      }
+
+      return player;
+    },
+    [releasePlayer],
+  );
+
+  const stopPlayer = useCallback(
+    (playerRef: React.MutableRefObject<AudioPlayer | null>) => {
+      const p = playerRef.current;
+      if (!p) return;
+      try {
+        p.pause();
       } catch {}
     },
     [],
@@ -252,10 +310,12 @@ export function AudioPlayerProvider({ children }: PropsWithChildren) {
       console.log(`stopAudioElementsOnly called: ${reason}`);
       pendingParentRef.current = null;
       jinglePlayingRef.current = false;
-      await stopSound(jingleSoundRef);
-      await stopSound(mainSoundRef);
+
+      // Best-effort: pause players
+      stopPlayer(jinglePlayerRef);
+      stopPlayer(mainPlayerRef);
     },
-    [stopSound],
+    [stopPlayer],
   );
 
   const stopAllAudio = useCallback(
@@ -287,44 +347,51 @@ export function AudioPlayerProvider({ children }: PropsWithChildren) {
       const signatureUrl = resolveIntroSignatureUrl(tawk);
       if (!signatureUrl) return;
 
-      const jingle = await ensureSound(jingleSoundRef);
-
       // If a newer play request happened, abort
       if (playTokenRef.current !== token) return;
 
       lastJingledParentIdRef.current = tawk.id;
       jinglePlayingRef.current = true;
 
-      try {
-        await jingle.unloadAsync().catch(() => {});
-        await jingle.loadAsync(
-          { uri: signatureUrl },
-          { shouldPlay: true, positionMillis: 0 },
-        );
-      } catch {
-        jinglePlayingRef.current = false;
-        return;
-      }
-
       await new Promise<void>((resolve) => {
-        const onStatus = (status: AVPlaybackStatus) => {
-          if (!isLoaded(status)) return;
-          if ((status as any).didJustFinish) {
-            jingle.setOnPlaybackStatusUpdate(null);
-            jinglePlayingRef.current = false;
-            resolve();
-          }
-        };
-        jingle.setOnPlaybackStatusUpdate(onStatus);
+        // Create a fresh jingle player each time to avoid source swapping edge cases.
+        const player = createPlayer(
+          jinglePlayerRef,
+          jingleStatusSubRef,
+          jingleStatusRef,
+          signatureUrl,
+          (status) => {
+            if (!status.isLoaded) return;
+            if (status.didJustFinish) {
+              jinglePlayingRef.current = false;
+              resolve();
+            }
+          },
+        );
 
-        // If interrupted, resolve quickly
+        if (!player) {
+          jinglePlayingRef.current = false;
+          resolve();
+          return;
+        }
+
+        try {
+          player.seekTo(0);
+        } catch {}
+        try {
+          player.play();
+        } catch {
+          jinglePlayingRef.current = false;
+          resolve();
+          return;
+        }
+
+        // If interrupted or something goes wrong, resolve quickly.
         const timeout = setTimeout(() => {
-          jingle.setOnPlaybackStatusUpdate(null);
           jinglePlayingRef.current = false;
           resolve();
         }, 10000);
 
-        // Clear timeout when resolved
         const originalResolve = resolve;
         resolve = () => {
           clearTimeout(timeout);
@@ -332,15 +399,13 @@ export function AudioPlayerProvider({ children }: PropsWithChildren) {
         };
       });
     },
-    [ensureSound, resolveIntroSignatureUrl],
+    [createPlayer, resolveIntroSignatureUrl],
   );
 
   const startMainPlayback = useCallback(
     async (tawk: Tawk, queue: Tawk[], token: number) => {
-      const main = await ensureSound(mainSoundRef);
-
       // Stop jingle before starting
-      await stopSound(jingleSoundRef);
+      stopPlayer(jinglePlayerRef);
       jinglePlayingRef.current = false;
 
       // Abort if a newer play request occurred
@@ -356,150 +421,197 @@ export function AudioPlayerProvider({ children }: PropsWithChildren) {
         currentTime: 0,
       });
 
+      const player = createPlayer(
+        mainPlayerRef,
+        mainStatusSubRef,
+        mainStatusRef,
+        tawk.audioUrl,
+        (status) => {
+          if (!status.isLoaded) return;
+
+          // Progress updates
+          if (status.duration > 0) {
+            dispatch({
+              type: 'SET_PROGRESS_TIME',
+              progress: (status.currentTime / status.duration) * 100,
+              currentTime: status.currentTime,
+            });
+          }
+
+          // Finish handling is done in the global finish handler below.
+        },
+      );
+
+      if (!player) {
+        dispatch({ type: 'SET_PLAYING', isPlaying: false });
+        return;
+      }
+
       try {
-        await main.unloadAsync().catch(() => {});
-        await main.loadAsync(
-          { uri: tawk.audioUrl },
-          { shouldPlay: true, positionMillis: 0 },
-        );
+        player.seekTo(0);
+      } catch {}
+
+      try {
+        player.play();
       } catch {
         dispatch({ type: 'SET_PLAYING', isPlaying: false });
       }
     },
-    [ensureSound, stopSound],
+    [createPlayer, stopPlayer],
   );
 
-  // Main playback status handler (attached once)
+  // Main playback status handler (finish/queue progression)
   useEffect(() => {
-    let cancelled = false;
+    // We only attach listeners when a player is created (in createPlayer).
+    // Here we just ensure that when the main player reports didJustFinish,
+    // we advance the queue/feed.
 
-    (async () => {
-      const main = await ensureSound(mainSoundRef);
-      if (cancelled) return;
+    const tryHandleFinish = async () => {
+      const status = mainStatusRef.current;
+      if (!status || !status.isLoaded) return;
+      if (!status.didJustFinish) return;
+      if (finishingRef.current) return;
 
-      main.setOnPlaybackStatusUpdate(async (status: any) => {
-        if (!isLoaded(status)) return;
+      finishingRef.current = true;
+      try {
+        const s = stateRef.current;
+        const playQueue = s.playQueue;
+        const currentQueueIndex = s.currentQueueIndex;
 
-        const durationMillis = (status as any).durationMillis ?? 0;
-        const positionMillis = (status as any).positionMillis ?? 0;
+        const nextIndex = currentQueueIndex + 1;
+        if (nextIndex < playQueue.length) {
+          const nextTawk = playQueue[nextIndex];
 
-        if (durationMillis > 0) {
+          const token = playTokenRef.current;
+          await playIntroSignatureIfNeeded(nextTawk, token);
+          if (playTokenRef.current !== token) return;
+
           dispatch({
-            type: 'SET_PROGRESS_TIME',
-            progress: (positionMillis / durationMillis) * 100,
-            currentTime: positionMillis / 1000,
+            type: 'SET_QUEUE_AND_CURRENT',
+            queue: playQueue,
+            index: nextIndex,
+            current: nextTawk,
+            isPlaying: true,
+            progress: 0,
+            currentTime: 0,
           });
+
+          const player = createPlayer(
+            mainPlayerRef,
+            mainStatusSubRef,
+            mainStatusRef,
+            nextTawk.audioUrl,
+            (st) => {
+              if (!st.isLoaded) return;
+              if (st.duration > 0) {
+                dispatch({
+                  type: 'SET_PROGRESS_TIME',
+                  progress: (st.currentTime / st.duration) * 100,
+                  currentTime: st.currentTime,
+                });
+              }
+            },
+          );
+
+          if (!player) {
+            dispatch({ type: 'SET_PLAYING', isPlaying: false });
+            return;
+          }
+
+          try {
+            player.seekTo(0);
+          } catch {}
+          try {
+            player.play();
+          } catch {
+            dispatch({ type: 'SET_PLAYING', isPlaying: false });
+          }
+          return;
         }
 
-        if ((status as any).didJustFinish) {
-          // Equivalent to HTMLAudioElement 'ended'
-          const s = stateRef.current;
-          const playQueue = s.playQueue;
-          const currentQueueIndex = s.currentQueueIndex;
+        if (!s.includeAutoplay) {
+          resetSession('ended: autoplay off');
+          dispatch({ type: 'RESET_PLAYBACK_UI' });
+          return;
+        }
 
-          const nextIndex = currentQueueIndex + 1;
-          if (nextIndex < playQueue.length) {
-            const nextTawk = playQueue[nextIndex];
+        const feedTawks = s.feedTawks;
+        const nextFeedIndex = s.feedIndex + 1;
 
-            const token = playTokenRef.current;
-            await playIntroSignatureIfNeeded(nextTawk, token);
-            if (playTokenRef.current !== token) return;
+        if (nextFeedIndex >= feedTawks.length) {
+          resetSession('ended: end of feed');
+          dispatch({ type: 'RESET_PLAYBACK_UI' });
+          dispatch({ type: 'CLEAR_QUEUE' });
+          return;
+        }
 
-            dispatch({
-              type: 'SET_QUEUE_AND_CURRENT',
-              queue: playQueue,
-              index: nextIndex,
-              current: nextTawk,
-              isPlaying: true,
-              progress: 0,
-              currentTime: 0,
-            });
+        let candidateIndex = nextFeedIndex;
+        let nextParent = feedTawks[candidateIndex];
 
-            try {
-              await main.unloadAsync().catch(() => {});
-              await main.loadAsync(
-                { uri: nextTawk.audioUrl },
-                { shouldPlay: true, positionMillis: 0 },
-              );
-            } catch {
-              dispatch({ type: 'SET_PLAYING', isPlaying: false });
+        if (playedParentsRef.current.has(nextParent.id)) {
+          let found = -1;
+          for (let i = nextFeedIndex + 1; i < feedTawks.length; i++) {
+            if (!playedParentsRef.current.has(feedTawks[i].id)) {
+              found = i;
+              break;
             }
-            return;
           }
-
-          if (!s.includeAutoplay) {
-            resetSession('ended: autoplay off');
-            dispatch({ type: 'RESET_PLAYBACK_UI' });
-            return;
-          }
-
-          const feedTawks = s.feedTawks;
-          const nextFeedIndex = s.feedIndex + 1;
-
-          if (nextFeedIndex >= feedTawks.length) {
-            resetSession('ended: end of feed');
+          if (found === -1) {
+            resetSession('ended: no more unplayed parents');
             dispatch({ type: 'RESET_PLAYBACK_UI' });
             dispatch({ type: 'CLEAR_QUEUE' });
             return;
           }
-
-          let candidateIndex = nextFeedIndex;
-          let nextParent = feedTawks[candidateIndex];
-
-          if (playedParentsRef.current.has(nextParent.id)) {
-            let found = -1;
-            for (let i = nextFeedIndex + 1; i < feedTawks.length; i++) {
-              if (!playedParentsRef.current.has(feedTawks[i].id)) {
-                found = i;
-                break;
-              }
-            }
-            if (found === -1) {
-              resetSession('ended: no more unplayed parents');
-              dispatch({ type: 'RESET_PLAYBACK_UI' });
-              dispatch({ type: 'CLEAR_QUEUE' });
-              return;
-            }
-            candidateIndex = found;
-            nextParent = feedTawks[candidateIndex];
-          }
-
-          dispatch({ type: 'SET_FEED_INDEX', index: candidateIndex });
-          playedParentsRef.current.add(nextParent.id);
-
-          const token = playTokenRef.current;
-          const isMergedProjectOutput =
-            nextParent.isMerged && nextParent.projectId;
-          if (!isMergedProjectOutput) {
-            await playIntroSignatureIfNeeded(nextParent, token);
-          }
-          if (pendingParentRef.current) return;
-          if (playTokenRef.current !== token) return;
-
-          const queue = [nextParent];
-          await startMainPlayback(nextParent, queue, token);
+          candidateIndex = found;
+          nextParent = feedTawks[candidateIndex];
         }
-      });
-    })();
+
+        dispatch({ type: 'SET_FEED_INDEX', index: candidateIndex });
+        playedParentsRef.current.add(nextParent.id);
+
+        const token = playTokenRef.current;
+        const isMergedProjectOutput =
+          nextParent.isMerged && nextParent.projectId;
+        if (!isMergedProjectOutput) {
+          await playIntroSignatureIfNeeded(nextParent, token);
+        }
+        if (pendingParentRef.current) return;
+        if (playTokenRef.current !== token) return;
+
+        const queue = [nextParent];
+        await startMainPlayback(nextParent, queue, token);
+      } finally {
+        finishingRef.current = false;
+      }
+    };
+
+    // Polling is only needed because the status event is wired through createPlayer.
+    // This keeps the provider logic centralized and avoids attaching multiple finish listeners.
+    const interval = setInterval(() => {
+      tryHandleFinish().catch(() => {});
+    }, 200);
 
     return () => {
-      cancelled = true;
-      // Keep sounds alive; they are unloaded on provider unmount below.
+      clearInterval(interval);
     };
   }, [
-    ensureSound,
+    createPlayer,
     playIntroSignatureIfNeeded,
     resetSession,
     startMainPlayback,
   ]);
 
-  // Clean up sounds on unmount
+  // Clean up players on unmount
   useEffect(() => {
     return () => {
-      unloadSound(mainSoundRef).catch(() => {});
-      unloadSound(jingleSoundRef).catch(() => {});
+      releasePlayer(mainPlayerRef, mainStatusSubRef);
+      releasePlayer(jinglePlayerRef, jingleStatusSubRef);
+      try {
+        videoPlayerRef.current?.release?.();
+      } catch {}
+      videoPlayerRef.current = null;
     };
-  }, [unloadSound]);
+  }, [releasePlayer]);
 
   const fetchHeardTawks = useCallback(async () => {
     // wire backend later
@@ -527,13 +639,15 @@ export function AudioPlayerProvider({ children }: PropsWithChildren) {
 
       // If tapping the same tawk, toggle
       if (s.currentTawk?.id === tawk.id) {
-        const main = await ensureSound(mainSoundRef);
+        const main = mainPlayerRef.current;
 
         if (s.isPlaying) {
-          await main.pauseAsync().catch(() => {});
+          try {
+            main?.pause();
+          } catch {}
 
           if (jinglePlayingRef.current) {
-            await stopSound(jingleSoundRef);
+            stopPlayer(jinglePlayerRef);
             jinglePlayingRef.current = false;
             pendingParentRef.current = { tawk, queue: s.playQueue };
           }
@@ -545,8 +659,12 @@ export function AudioPlayerProvider({ children }: PropsWithChildren) {
             pendingParentRef.current = null;
             await startMainPlayback(pendingTawk, queue, token);
           } else {
-            await main.playAsync().catch(() => {});
-            dispatch({ type: 'SET_PLAYING', isPlaying: true });
+            try {
+              main?.play();
+              dispatch({ type: 'SET_PLAYING', isPlaying: true });
+            } catch {
+              dispatch({ type: 'SET_PLAYING', isPlaying: false });
+            }
           }
         }
         return;
@@ -586,11 +704,10 @@ export function AudioPlayerProvider({ children }: PropsWithChildren) {
       await startMainPlayback(tawk, queue, token);
     },
     [
-      ensureSound,
       playIntroSignatureIfNeeded,
       startMainPlayback,
       stopAudioElementsOnly,
-      stopSound,
+      stopPlayer,
     ],
   );
 
@@ -620,26 +737,46 @@ export function AudioPlayerProvider({ children }: PropsWithChildren) {
         currentTime: 0,
       });
 
-      const main = await ensureSound(mainSoundRef);
+      const player = createPlayer(
+        mainPlayerRef,
+        mainStatusSubRef,
+        mainStatusRef,
+        reply.audioUrl,
+        (status) => {
+          if (!status.isLoaded) return;
+          if (status.duration > 0) {
+            dispatch({
+              type: 'SET_PROGRESS_TIME',
+              progress: (status.currentTime / status.duration) * 100,
+              currentTime: status.currentTime,
+            });
+          }
+        },
+      );
+
+      if (!player) {
+        dispatch({ type: 'SET_PLAYING', isPlaying: false });
+        return;
+      }
+
       try {
-        await main.unloadAsync().catch(() => {});
-        await main.loadAsync(
-          { uri: reply.audioUrl },
-          { shouldPlay: true, positionMillis: 0 },
-        );
+        player.seekTo(0);
+      } catch {}
+      try {
+        player.play();
       } catch {
         dispatch({ type: 'SET_PLAYING', isPlaying: false });
       }
     },
-    [ensureSound, playIntroSignatureIfNeeded, stopAudioElementsOnly],
+    [createPlayer, playIntroSignatureIfNeeded, stopAudioElementsOnly],
   );
 
   const togglePlayPause = useCallback(async () => {
     const s = stateRef.current;
-    const main = await ensureSound(mainSoundRef);
+    const main = mainPlayerRef.current;
 
     if (jinglePlayingRef.current) {
-      await stopSound(jingleSoundRef);
+      stopPlayer(jinglePlayerRef);
       jinglePlayingRef.current = false;
       if (s.currentTawk) {
         pendingParentRef.current = { tawk: s.currentTawk, queue: s.playQueue };
@@ -657,13 +794,26 @@ export function AudioPlayerProvider({ children }: PropsWithChildren) {
     }
 
     if (s.isPlaying) {
-      await main.pauseAsync().catch(() => {});
+      try {
+        main?.pause();
+      } catch {}
       dispatch({ type: 'SET_PLAYING', isPlaying: false });
     } else {
-      await main.playAsync().catch(() => {});
-      dispatch({ type: 'SET_PLAYING', isPlaying: true });
+      try {
+        // If we finished previously, ensure we’re not stuck at the end.
+        const st = mainStatusRef.current;
+        if (st?.isLoaded && st.duration > 0 && st.currentTime >= st.duration) {
+          try {
+            main?.seekTo(0);
+          } catch {}
+        }
+        main?.play();
+        dispatch({ type: 'SET_PLAYING', isPlaying: true });
+      } catch {
+        dispatch({ type: 'SET_PLAYING', isPlaying: false });
+      }
     }
-  }, [ensureSound, startMainPlayback, stopSound]);
+  }, [startMainPlayback, stopPlayer]);
 
   const skip = useCallback(async () => {
     const s = stateRef.current;
@@ -687,13 +837,33 @@ export function AudioPlayerProvider({ children }: PropsWithChildren) {
         currentTime: 0,
       });
 
-      const main = await ensureSound(mainSoundRef);
+      const player = createPlayer(
+        mainPlayerRef,
+        mainStatusSubRef,
+        mainStatusRef,
+        nextTawk.audioUrl,
+        (status) => {
+          if (!status.isLoaded) return;
+          if (status.duration > 0) {
+            dispatch({
+              type: 'SET_PROGRESS_TIME',
+              progress: (status.currentTime / status.duration) * 100,
+              currentTime: status.currentTime,
+            });
+          }
+        },
+      );
+
+      if (!player) {
+        dispatch({ type: 'SET_PLAYING', isPlaying: false });
+        return;
+      }
+
       try {
-        await main.unloadAsync().catch(() => {});
-        await main.loadAsync(
-          { uri: nextTawk.audioUrl },
-          { shouldPlay: true, positionMillis: 0 },
-        );
+        player.seekTo(0);
+      } catch {}
+      try {
+        player.play();
       } catch {
         dispatch({ type: 'SET_PLAYING', isPlaying: false });
       }
@@ -705,31 +875,31 @@ export function AudioPlayerProvider({ children }: PropsWithChildren) {
       dispatch({ type: 'SET_FEED_INDEX', index: nextFeedIndex });
       await playTawk(s.feedTawks[nextFeedIndex], nextFeedIndex);
     }
-  }, [ensureSound, playTawk, stopAllAudio]);
+  }, [createPlayer, playTawk, stopAllAudio]);
 
-  const seek = useCallback(
-    async (percent: number) => {
-      const main = await ensureSound(mainSoundRef);
-      const status = await main.getStatusAsync().catch(() => null);
-      if (!status || !isLoaded(status)) return;
+  const seek = useCallback(async (percent: number) => {
+    const player = mainPlayerRef.current;
+    const status = mainStatusRef.current;
+    if (!player || !status || !status.isLoaded) return;
+    if (!status.duration) return;
 
-      const durationMillis = (status as any).durationMillis ?? 0;
-      if (!durationMillis) return;
+    const seconds = Math.max(
+      0,
+      Math.min(status.duration, (percent / 100) * status.duration),
+    );
 
-      const positionMillis = Math.max(
-        0,
-        Math.min(durationMillis, (percent / 100) * durationMillis),
-      );
-      await main.setPositionAsync(positionMillis).catch(() => {});
+    try {
+      player.seekTo(seconds);
+    } catch {
+      return;
+    }
 
-      dispatch({
-        type: 'SET_PROGRESS_TIME',
-        progress: percent,
-        currentTime: positionMillis / 1000,
-      });
-    },
-    [ensureSound],
-  );
+    dispatch({
+      type: 'SET_PROGRESS_TIME',
+      progress: percent,
+      currentTime: seconds,
+    });
+  }, []);
 
   const close = useCallback(() => {
     playTokenRef.current += 1;
@@ -756,18 +926,38 @@ export function AudioPlayerProvider({ children }: PropsWithChildren) {
         currentTime: 0,
       });
 
-      const main = await ensureSound(mainSoundRef);
+      const player = createPlayer(
+        mainPlayerRef,
+        mainStatusSubRef,
+        mainStatusRef,
+        tawk.audioUrl,
+        (status) => {
+          if (!status.isLoaded) return;
+          if (status.duration > 0) {
+            dispatch({
+              type: 'SET_PROGRESS_TIME',
+              progress: (status.currentTime / status.duration) * 100,
+              currentTime: status.currentTime,
+            });
+          }
+        },
+      );
+
+      if (!player) {
+        dispatch({ type: 'SET_PLAYING', isPlaying: false });
+        return;
+      }
+
       try {
-        await main.unloadAsync().catch(() => {});
-        await main.loadAsync(
-          { uri: tawk.audioUrl },
-          { shouldPlay: true, positionMillis: 0 },
-        );
+        player.seekTo(0);
+      } catch {}
+      try {
+        player.play();
       } catch {
         dispatch({ type: 'SET_PLAYING', isPlaying: false });
       }
     },
-    [ensureSound, stopAllAudio],
+    [createPlayer, stopAllAudio],
   );
 
   const removeFromQueue = useCallback((index: number) => {

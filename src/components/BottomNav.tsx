@@ -1,24 +1,27 @@
 import React, { useMemo, useState } from 'react';
 import {
   Modal,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
   View,
-  Platform,
+  useColorScheme,
 } from 'react-native';
 import { usePathname, useRouter } from 'expo-router';
 import {
   Home,
-  Search,
-  Users,
-  Plus,
-  X,
-  Mic,
-  SlidersHorizontal,
   MessageCircle,
+  Mic,
+  Plus,
+  Search,
+  SlidersHorizontal,
+  Users,
+  X,
 } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { getTheme, type Theme } from '@/src/theme';
+import { hexToRgba } from '@/src/utils/hex-to-rgba';
 
 type NavItem = {
   icon: React.ComponentType<{ size?: number; color?: string }>;
@@ -37,21 +40,12 @@ const rightItems: NavItem[] = [
 ];
 
 interface BottomNavProps {
-  /** If provided, called instead of default navigation to /record */
   onRecord?: () => void;
-  /** If provided, called instead of default navigation to /create-room */
   onCreateRoom?: () => void;
-  /** If provided, called instead of opening the built-in Find modal */
   onFind?: () => void;
-  /** If provided, called instead of default navigation to /messages */
   onMessages?: () => void;
 }
 
-/**
- * React Native / Expo Router bottom navigation.
- *
- * Place this inside a layout route (e.g. `app/(tabs)/_layout.tsx`) under `<Slot />`.
- */
 export function BottomNav({
   onRecord,
   onCreateRoom,
@@ -61,25 +55,25 @@ export function BottomNav({
   const router = useRouter();
   const pathname = usePathname();
   const insets = useSafeAreaInsets();
+  const colorScheme = useColorScheme();
+  const theme = useMemo(() => getTheme(colorScheme), [colorScheme]);
+  const styles = useMemo(() => createStyles(theme), [theme]);
 
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isFindOpen, setIsFindOpen] = useState(false);
 
-  const items = useMemo(() => {
-    return { left: leftItems, right: rightItems };
-  }, []);
+  const items = useMemo(() => ({ left: leftItems, right: rightItems }), []);
+
+  const isActive = (path: string) => {
+    if (pathname === path) return true;
+    if (path !== '/' && pathname?.startsWith(path + '/')) return true;
+    return false;
+  };
 
   const navigate = (path: string) => {
     if (isActive(path)) return;
     setIsMenuOpen(false);
     router.push(path as any);
-  };
-
-  const isActive = (path: string) => {
-    // Exact match is usually fine; for nested routes, treat "startsWith" as active.
-    if (pathname === path) return true;
-    if (path !== '/' && pathname?.startsWith(path + '/')) return true;
-    return false;
   };
 
   const handleFind = () => {
@@ -108,7 +102,6 @@ export function BottomNav({
 
   return (
     <>
-      {/* Simple Find modal (replace with your real RN component) */}
       <Modal
         visible={isFindOpen}
         transparent
@@ -134,7 +127,6 @@ export function BottomNav({
         </Pressable>
       </Modal>
 
-      {/* Expanded menu overlay */}
       {isMenuOpen && (
         <Pressable
           style={styles.overlay}
@@ -142,7 +134,6 @@ export function BottomNav({
         />
       )}
 
-      {/* Expanded action menu */}
       {isMenuOpen && (
         <View style={[styles.actionMenu, { bottom: 80 + insets.bottom }]}>
           <Pressable style={styles.actionBtnOutline} onPress={handleFind}>
@@ -161,7 +152,7 @@ export function BottomNav({
           </Pressable>
 
           <Pressable style={styles.actionBtnPrimary} onPress={handleRecord}>
-            <Mic size={18} color="#fff" />
+            <Mic size={18} color={theme.colors.surface} />
             <Text style={[styles.actionBtnText, styles.actionBtnTextPrimary]}>
               Record
             </Text>
@@ -169,17 +160,8 @@ export function BottomNav({
         </View>
       )}
 
-      {/* Bottom nav */}
-      <View
-        style={[
-          styles.nav,
-          {
-            paddingBottom: Math.max(insets.bottom, 8),
-          },
-        ]}
-      >
+      <View style={[styles.nav, { paddingBottom: Math.max(insets.bottom, 8) }]}>
         <View style={styles.navInner}>
-          {/* Left items */}
           {items.left.map((item) => {
             const active = isActive(item.path);
             const Icon = item.icon;
@@ -189,11 +171,18 @@ export function BottomNav({
                 style={[styles.navItem, active && styles.navItemActive]}
                 onPress={() => navigate(item.path)}
               >
-                <Icon size={20} color={active ? '#111' : '#6b7280'} />
+                <Icon
+                  size={20}
+                  color={active ? theme.colors.text : theme.colors.mutedText}
+                />
                 <Text
                   style={[
                     styles.navLabel,
-                    { color: active ? '#111' : '#6b7280' },
+                    {
+                      color: active
+                        ? theme.colors.text
+                        : theme.colors.mutedText,
+                    },
                   ]}
                 >
                   {item.label}
@@ -202,7 +191,6 @@ export function BottomNav({
             );
           })}
 
-          {/* Center action button */}
           <Pressable
             style={styles.centerBtnWrap}
             onPress={() => setIsMenuOpen((v) => !v)}
@@ -217,7 +205,6 @@ export function BottomNav({
             </View>
           </Pressable>
 
-          {/* Right items */}
           {items.right.map((item) => {
             const active = isActive(item.path);
             const Icon = item.icon;
@@ -227,11 +214,18 @@ export function BottomNav({
                 style={[styles.navItem, active && styles.navItemActive]}
                 onPress={() => navigate(item.path)}
               >
-                <Icon size={20} color={active ? '#111' : '#6b7280'} />
+                <Icon
+                  size={20}
+                  color={active ? theme.colors.text : theme.colors.mutedText}
+                />
                 <Text
                   style={[
                     styles.navLabel,
-                    { color: active ? '#111' : '#6b7280' },
+                    {
+                      color: active
+                        ? theme.colors.text
+                        : theme.colors.mutedText,
+                    },
                   ]}
                 >
                   {item.label}
@@ -245,162 +239,154 @@ export function BottomNav({
   );
 }
 
-const styles = StyleSheet.create({
-  overlay: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    top: 0,
-    bottom: 0,
-    zIndex: 40,
-  },
-  actionMenu: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    zIndex: 50,
-    alignItems: 'center',
-    gap: 10,
-  },
-  actionBtnOutline: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-    backgroundColor: '#fff',
-    // subtle shadow
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOpacity: 0.12,
-        shadowRadius: 10,
-        shadowOffset: { width: 0, height: 6 },
-      },
-      android: { elevation: 6 },
-    }),
-  },
-  actionBtnPrimary: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 18,
-    paddingVertical: 12,
-    borderRadius: 999,
-    backgroundColor: '#111827',
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOpacity: 0.18,
-        shadowRadius: 12,
-        shadowOffset: { width: 0, height: 8 },
-      },
-      android: { elevation: 8 },
-    }),
-  },
-  actionBtnText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#111827',
-  },
-  actionBtnTextPrimary: {
-    color: '#fff',
-  },
-  nav: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    zIndex: 50,
-    borderTopWidth: 1,
-    borderTopColor: '#e5e7eb',
-    backgroundColor: 'rgba(255,255,255,0.92)',
-  },
-  navInner: {
-    maxWidth: 520,
-    alignSelf: 'center',
-    width: '100%',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-around',
-    paddingHorizontal: 8,
-    paddingTop: 8,
-  },
-  navItem: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 14,
-  },
-  navItemActive: {
-    backgroundColor: 'rgba(0,0,0,0.04)',
-  },
-  navLabel: {
-    marginTop: 4,
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  centerBtnWrap: {
-    marginTop: -24,
-  },
-  centerBtn: {
-    borderRadius: 999,
-    padding: 16,
-    transform: [{ rotate: '0deg' }],
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOpacity: 0.22,
-        shadowRadius: 14,
-        shadowOffset: { width: 0, height: 10 },
-      },
-      android: { elevation: 10 },
-    }),
-  },
-  centerBtnClosed: {
-    backgroundColor: '#111827',
-  },
-  centerBtnOpen: {
-    backgroundColor: '#e5e7eb',
-  },
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.35)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 16,
-  },
-  modalCard: {
-    width: '100%',
-    maxWidth: 420,
-    borderRadius: 18,
-    padding: 16,
-    backgroundColor: '#fff',
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#111827',
-    marginBottom: 6,
-  },
-  modalBody: {
-    fontSize: 14,
-    color: '#374151',
-    marginBottom: 12,
-  },
-  modalCloseBtn: {
-    alignSelf: 'flex-end',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 12,
-    backgroundColor: '#111827',
-  },
-  modalCloseText: {
-    color: '#fff',
-    fontWeight: '700',
-  },
-});
+export const BOTTOM_NAV_MARGIN = 88;
+
+function createStyles(t: Theme) {
+  return StyleSheet.create({
+    overlay: {
+      position: 'absolute',
+      left: 0,
+      right: 0,
+      top: 0,
+      bottom: 0,
+      zIndex: 40,
+    },
+    actionMenu: {
+      position: 'absolute',
+      left: 0,
+      right: 0,
+      zIndex: 50,
+      alignItems: 'center',
+      gap: 10,
+    },
+    actionBtnOutline: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      borderRadius: 999,
+      borderWidth: 1,
+      borderColor: t.colors.border,
+      backgroundColor: t.colors.surface,
+      ...Platform.select({
+        ios: t.shadow as any,
+        android: { elevation: (t.shadow as any)?.elevation ?? 6 },
+      }),
+    },
+    actionBtnPrimary: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      paddingHorizontal: 18,
+      paddingVertical: 12,
+      borderRadius: 999,
+      backgroundColor: t.colors.primary,
+      ...Platform.select({
+        ios: t.shadow as any,
+        android: { elevation: (t.shadow as any)?.elevation ?? 8 },
+      }),
+    },
+    actionBtnText: {
+      fontSize: 14,
+      fontWeight: '600',
+      color: t.colors.text,
+    },
+    actionBtnTextPrimary: {
+      color: t.colors.surface,
+    },
+    nav: {
+      position: 'absolute',
+      left: 0,
+      right: 0,
+      bottom: 0,
+      zIndex: 50,
+      borderTopWidth: 1,
+      borderTopColor: t.colors.border,
+      // glassy background that adapts to theme
+      backgroundColor: hexToRgba(t.colors.surface, 0.92),
+    },
+    navInner: {
+      maxWidth: 520,
+      alignSelf: 'center',
+      width: '100%',
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-around',
+      paddingHorizontal: 8,
+      paddingTop: 8,
+    },
+    navItem: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      borderRadius: 14,
+    },
+    navItemActive: {
+      backgroundColor: hexToRgba(t.colors.text, 0.06),
+    },
+    navLabel: {
+      marginTop: 4,
+      fontSize: 11,
+      fontWeight: '600',
+    },
+    centerBtnWrap: {
+      marginTop: -24,
+    },
+    centerBtn: {
+      borderRadius: 999,
+      padding: 16,
+      transform: [{ rotate: '0deg' }],
+      ...Platform.select({
+        ios: t.shadow as any,
+        android: { elevation: (t.shadow as any)?.elevation ?? 10 },
+      }),
+    },
+    centerBtnClosed: {
+      backgroundColor: t.colors.primary,
+    },
+    centerBtnOpen: {
+      backgroundColor: t.colors.input,
+    },
+    modalBackdrop: {
+      flex: 1,
+      backgroundColor: 'rgba(0,0,0,0.35)',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: 16,
+    },
+    modalCard: {
+      width: '100%',
+      maxWidth: 420,
+      borderRadius: 18,
+      padding: 16,
+      backgroundColor: t.colors.surface,
+      borderWidth: 1,
+      borderColor: t.colors.border,
+      ...t.shadow,
+    },
+    modalTitle: {
+      fontSize: 18,
+      fontWeight: '700',
+      color: t.colors.text,
+      marginBottom: 6,
+    },
+    modalBody: {
+      fontSize: 14,
+      color: t.colors.mutedText,
+      marginBottom: 12,
+    },
+    modalCloseBtn: {
+      alignSelf: 'flex-end',
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      borderRadius: 12,
+      backgroundColor: t.colors.primary,
+    },
+    modalCloseText: {
+      color: t.colors.surface,
+      fontWeight: '700',
+    },
+  });
+}

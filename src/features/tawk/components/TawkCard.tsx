@@ -11,27 +11,25 @@ import {
   TextInput,
   View,
   ViewStyle,
-  useColorScheme,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Tawk } from '@/src/features/tawk/types/tawk';
 import { useGlobalAudioPlayer } from '@/src/contexts/AudioPlayerContext';
 
-// If you already use an icon library in RN, replace these with your preferred icons.
-import {
-  Check,
-  ChevronDown,
-  ChevronUp,
-  Heart,
-  MessageCircle,
-  Mic,
-  Pause,
-  Play,
-  Repeat2,
-  User,
-} from 'lucide-react-native';
-import { getTheme, Theme } from '@/src/theme';
+import { Check, Pause, Play, User } from 'lucide-react-native';
+import { Theme } from '@/src/theme';
 import { useTheme } from '@/src/theme/useTheme';
+import { formatDuration } from '@/src/utils/format-duration';
+import { formatTimeAgo } from '@/src/utils/format-time-ago';
+import { hexToRgba } from '@/src/utils/hex-to-rgba';
+import Waveform from '@/src/features/tawk/components/Waveform';
+import { Comment } from '@/src/features/tawk/types/comment';
+import {
+  CommentsButton,
+  EchoButton,
+  LikeButton,
+  RepliesButton,
+} from '@/src/components/action-button';
 
 interface FeedContext {
   type: 'echo' | 'room';
@@ -40,17 +38,6 @@ interface FeedContext {
   roomId?: string;
   roomName?: string;
 }
-
-type Comment = {
-  id: string;
-  content: string;
-  createdAt?: string;
-  author: {
-    id: string;
-    displayName: string;
-    avatarUrl?: string | null;
-  };
-};
 
 interface TawkCardProps {
   tawk: Tawk;
@@ -84,34 +71,6 @@ interface TawkCardProps {
   ) => Promise<void>;
 }
 
-const Waveform = ({ active }: { active: boolean }) => {
-  const t = useTheme();
-  const styles = useMemo(() => createStyles(t), [t]);
-  // styles is passed as prop in TawkCard's body, so we need to get it from React context.
-  // We'll use a React context trick: expect styles to be available in closure.
-  const bars = useMemo(() => Array.from({ length: 40 }, (_, i) => i), []);
-  // styles is available from closure (see below, Waveform used inside TawkCard)
-  // @ts-ignore
-  return (
-    <View style={styles.waveWrap}>
-      {bars.map((i) => {
-        // deterministic-ish heights (avoid Math.random in render)
-        const h = 10 + Math.abs(Math.sin(i * 0.55)) * 18;
-        return (
-          <View
-            key={i}
-            style={[
-              styles.waveBar,
-              { height: h },
-              active ? styles.waveBarActive : styles.waveBarIdle,
-            ]}
-          />
-        );
-      })}
-    </View>
-  );
-};
-
 const TawkCard = ({
   context,
   currentlyPlayingId,
@@ -119,7 +78,7 @@ const TawkCard = ({
   initialOpenComments = false,
   initialOpenReplies = false,
   isHeard,
-  isPlaying,
+  isPlaying = false,
   onDeleted,
   onPlay,
   onPlayReply,
@@ -150,6 +109,8 @@ const TawkCard = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const displayedTitle = tawk.title ?? 'Untitled';
+
+  const active = currentlyPlayingId === tawk.id;
 
   const navigate = (path: string) => router.push(path as any);
 
@@ -193,7 +154,7 @@ const TawkCard = ({
     const nextLiked = !isLiked;
     setIsLiked(nextLiked);
     setLikesCount((prev) => prev + (nextLiked ? 1 : -1));
-
+    // Animation now handled in LikeButton
     try {
       const maybeCount = await onLikeToggle?.(tawk, nextLiked);
       if (typeof maybeCount === 'number') {
@@ -237,8 +198,6 @@ const TawkCard = ({
       setIsSubmitting(false);
     }
   };
-
-  const active = Boolean(isPlaying || currentlyPlayingId === tawk.id);
 
   const renderInlineContext = () => {
     if (!context) return null;
@@ -312,7 +271,7 @@ const TawkCard = ({
               {renderInlineContext()}
             </Text>
             <Text style={styles.metaLine} numberOfLines={1}>
-              @{tawk.author.username} · {tawk.createdAt ?? ''}
+              @{tawk.author.username} · {formatTimeAgo(tawk.createdAt)}
             </Text>
           </View>
 
@@ -323,7 +282,9 @@ const TawkCard = ({
               </View>
             ) : null}
             <View style={styles.durationPill}>
-              <Text style={styles.durationText}>{tawk.duration ?? ''}</Text>
+              <Text style={styles.durationText}>
+                {formatDuration(tawk.duration)}
+              </Text>
             </View>
           </View>
         </View>
@@ -356,53 +317,36 @@ const TawkCard = ({
               onPlay?.(tawk);
             }}
           >
-            {active ? (
+            {active && isPlaying ? (
               <Pause size={18} color={t.colors.surface} />
             ) : (
               <Play size={18} color={t.colors.text} />
             )}
           </Pressable>
 
-          <Waveform active={active} />
+          <Waveform active={active} isPlaying={active && isPlaying} />
         </View>
 
         {/* Actions */}
         <View style={styles.actionsRow}>
-          <Pressable style={styles.actionBtn} onPress={handleLike}>
-            <Heart
-              size={16}
-              color={isLiked ? t.colors.danger : t.colors.mutedText}
-            />
-            <Text style={styles.actionText}>{likesCount}</Text>
-          </Pressable>
+          <LikeButton
+            isLiked={isLiked}
+            likesCount={likesCount}
+            onPress={handleLike}
+          />
 
-          <Pressable
-            style={styles.actionBtn}
+          <RepliesButton
+            repliesCount={repliesCount}
             onPress={() => setIsRepliesOpen(true)}
-          >
-            <Mic size={16} color={t.colors.mutedText} />
-            <Text style={styles.actionText}>{repliesCount} Replies</Text>
-          </Pressable>
+          />
 
-          <Pressable
-            style={styles.actionBtn}
+          <CommentsButton
+            commentsCount={commentsCount}
+            open={showComments}
             onPress={() => setShowComments((v) => !v)}
-          >
-            <MessageCircle size={16} color={t.colors.mutedText} />
-            <Text style={styles.actionText}>{commentsCount} Comments</Text>
-            {showComments ? (
-              <ChevronUp size={14} color={t.colors.mutedText} />
-            ) : (
-              <ChevronDown size={14} color={t.colors.mutedText} />
-            )}
-          </Pressable>
+          />
 
-          <Pressable
-            style={[styles.actionBtn, styles.echoBtn]}
-            onPress={() => setIsEchoOpen(true)}
-          >
-            <Repeat2 size={16} color={t.colors.mutedText} />
-          </Pressable>
+          <EchoButton onPress={() => setIsEchoOpen(true)} />
         </View>
 
         {/* Comments */}
@@ -553,22 +497,6 @@ const TawkCard = ({
 
 export default TawkCard;
 
-function hexToRgba(hex: string, alpha: number) {
-  const normalized = hex.replace('#', '');
-  const full =
-    normalized.length === 3
-      ? normalized
-          .split('')
-          .map((c) => c + c)
-          .join('')
-      : normalized;
-  const int = parseInt(full, 16);
-  const r = (int >> 16) & 255;
-  const g = (int >> 8) & 255;
-  const b = int & 255;
-  return `rgba(${r},${g},${b},${alpha})`;
-}
-
 function createStyles(t: Theme) {
   return StyleSheet.create({
     card: {
@@ -669,34 +597,13 @@ function createStyles(t: Theme) {
       justifyContent: 'center',
     },
     playBtnActive: { backgroundColor: t.colors.primary },
-    playBtnIdle: { backgroundColor: t.colors.input },
-
-    waveWrap: {
-      flex: 1,
-      flexDirection: 'row',
-      alignItems: 'flex-end',
-      gap: 2,
-      height: 34,
-    },
-    waveBar: { width: 3, borderRadius: 999 },
-    waveBarActive: { backgroundColor: t.colors.primary },
-    waveBarIdle: { backgroundColor: hexToRgba(t.colors.mutedText, 0.35) },
+    playBtnIdle: { backgroundColor: t.colors.sidebarSurface },
 
     actionsRow: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: t.spacing.s,
     },
-    actionBtn: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 6,
-      paddingVertical: 6,
-      paddingHorizontal: 8,
-      borderRadius: t.radius.m,
-    },
-    actionText: { fontSize: 12, color: t.colors.text, fontWeight: '600' },
-    echoBtn: { marginLeft: 'auto' },
 
     commentsWrap: {
       marginTop: t.spacing.s,

@@ -8,7 +8,7 @@ export const dummyTawk: Tawk = {
     'I tried the ‘do nothing for 60 seconds’ thing before opening my phone. It’s uncomfortable… but kinda works.',
   audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3',
   createdAt: '2026-01-23',
-  duration: 42,
+  duration: 373,
   likesCount: 12,
   repliesCount: 3,
   commentsCount: 5,
@@ -37,7 +37,7 @@ export const feedData: Tawk[] = [
       'Shipped the bottom nav + splash flow without a white flash. Small victories count.',
     audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3',
     createdAt: '2026-01-23',
-    duration: 110,
+    duration: 344,
     likesCount: 41,
     repliesCount: 6,
     commentsCount: 9,
@@ -48,8 +48,8 @@ export const feedData: Tawk[] = [
       displayName: 'Jonas',
       username: 'jonasdev',
       avatarUrl: 'https://i.pravatar.cc/150?img=12',
-      signatureUrl:
-        'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3',
+      // signatureUrl:
+      //   'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3',
     },
   },
   {
@@ -59,7 +59,7 @@ export const feedData: Tawk[] = [
       'They’re not “more code”, they’re a map of how your app changes. Especially with audio events.',
     audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3',
     createdAt: '2026-01-22',
-    duration: 55,
+    duration: 354,
     likesCount: 7,
     repliesCount: 1,
     commentsCount: 0,
